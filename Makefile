@@ -6,7 +6,7 @@ stage:
 	git status
 
 do:
-	java -cp out com.briantilley.TestDriver
+	@java -cp out com.briantilley.TestDriver
 
 clean:
 	rm -rf out/*.class
