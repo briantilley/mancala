@@ -6,8 +6,6 @@ import java.util.NoSuchElementException;
 
 public class MancalaGameTree {
 
-    private int nodeCount = 0;
-
     // node of the decision tree
     private class MancalaTurnNode {
         public MancalaGameState state;
@@ -15,7 +13,6 @@ public class MancalaGameTree {
         public MancalaTurnNode(MancalaGameState s, int locationsPerPlayer) {
             state = s;
             next = new MancalaTurnNode[locationsPerPlayer];
-            nodeCount++;
         }
 
         // store active player plus all values of the board in one byte each
@@ -83,14 +80,9 @@ public class MancalaGameTree {
         this.root = new MancalaTurnNode(new MancalaGameState(locationsPerPlayer, startingTokensPerLocation), locationsPerPlayer);
     }
 
-    // public trigger for recursive call
+    // public trigger to create all possible states
     public void generate() {
-        // start at the fresh game
-        nodeCount = 1;
-//        createDecisionTree(root);
-//        createDecisionTreeIterative();
-        printDecisionTreeFile();
-//        System.out.println(nodeCount + " nodes created");
+        printDecisionTree();
     }
 
     // give the next state by performing the move specified
@@ -144,13 +136,16 @@ public class MancalaGameTree {
     }
 
     // print the would-be game tree in pre-order traversal fashion, don't store in memory
-    public void printDecisionTreeFile() {
+    private void printDecisionTree() {
         // hold the entire path of states leading up to current state
         Deque<MancalaStackFrame> previousStates = new LinkedList<>();
         previousStates.addFirst(new MancalaStackFrame(root.state));
 
         // print initial state
         System.out.println(root.state);
+
+        // metrics
+        long maxMoveCount = Long.MIN_VALUE, minMoveCount = Long.MAX_VALUE, avgMoveCountAccumulator = 0, avgMoveCountDivisor = 0;
 
         while(true) {
             // grab a frame to start doing turns from
@@ -160,8 +155,15 @@ public class MancalaGameTree {
             catch(NoSuchElementException e) { break; }
 
             // if this state is the end of a game path, forget it and move up
-            if(isEndState(previousFrame.state, locationsPerPlayer, winningThreshold))
+            if(isEndState(previousFrame.state, locationsPerPlayer, winningThreshold)) {
+                // metrics
+                maxMoveCount = Math.max(maxMoveCount, previousStates.size());
+                minMoveCount = Math.min(minMoveCount, previousStates.size());
+                avgMoveCountAccumulator += previousStates.size();
+                avgMoveCountDivisor++;
+
                 continue;
+            }
 
             // find the next valid state that follows
             MancalaGameState currentState = null;
@@ -173,7 +175,7 @@ public class MancalaGameTree {
             // if we hit a valid move
             if(currentState != null) {
                 // output the state
-                System.out.println(currentState);
+//                System.out.println(currentState);
 
                 // put the previous frame back on the stack
                 previousStates.addFirst(previousFrame);
@@ -182,129 +184,9 @@ public class MancalaGameTree {
                 previousStates.addFirst(new MancalaStackFrame(currentState));
             }
         }
+
+        System.err.println("longest game: " + maxMoveCount + " moves\nshortest game: " + minMoveCount + " moves");
+        System.err.println("average game: " + (int)(100.0 * (double)avgMoveCountAccumulator / (double)avgMoveCountDivisor + 0.5) / 100.0 + " moves");
+        System.err.println("total games: " + avgMoveCountDivisor);
     }
-
-    // uses iteration and a stack structure to create the tree
-    public void createDecisionTreeIterative() {
-        // create a stack to hold all state nodes yet to be processed
-        // start with just the root
-        Deque<MancalaTurnNode> pendingNodes = new LinkedList<>();
-        pendingNodes.addFirst(root);
-
-        // run until NoSuchElementException (empty stack) occurs
-        // this is a de-recursed generation of the game tree
-        MancalaTurnNode currentRoot;
-        while(true) {
-            // get a node to process
-            // quit the loop when the stack empties
-            try { currentRoot = pendingNodes.removeFirst(); }
-            catch (NoSuchElementException e) { break; }
-
-            // base case (end of the current game path)
-            // either side is empty or either player has more than half the tokens in their store
-            if(isEndState(currentRoot.state, locationsPerPlayer, winningThreshold)) {
-//                System.out.println(currentRoot.state);
-                currentRoot.next = null; // this signifies a finished game path
-                continue;
-            }
-
-            // "Which player am I?"
-            int currentPlayer = currentRoot.state.activePlayer ? 1 : 0;
-
-            // "Who is my opponent?"
-            int currentOpponent = (!currentRoot.state.activePlayer) ? 1 : 0;
-
-            // "Where is my store?"
-            int playerStore = currentPlayer * (locationsPerPlayer + 1) + locationsPerPlayer;
-
-            // "Where is my opponent's store?"
-            int opponentStore = currentOpponent * (locationsPerPlayer + 1) + locationsPerPlayer;
-
-            // iterate through each possible move (like a player considering his options)
-            for(int chosenMove = 0; chosenMove < locationsPerPlayer; chosenMove++) {
-                // if the move selected was invalid, skip storage
-                MancalaGameState currentState;
-                if(null == (currentState = doTurn(currentRoot.state, chosenMove, currentPlayer, playerStore, opponentStore)))
-                    continue;
-
-                // store the generated game state
-                currentRoot.next[chosenMove] = new MancalaTurnNode(currentState, locationsPerPlayer);
-
-                // push this new state to the stack to have its subsequent moves generated
-                pendingNodes.addFirst(currentRoot.next[chosenMove]);
-            }
-        }
-    }
-
-//    // generate entire decision tree
-//    private void createDecisionTree(MancalaTurnNode root) {
-////        System.out.println(root.state);
-//        // base case (end of the game)
-//        // either side is empty or either player has more than half the tokens in their store
-//        if(intSum(root.state.locations, root.state.locations.length / 2 - 1) <= 0 ||
-//                intSum(root.state.locations, root.state.locations.length / 2, root.state.locations.length - 1) <= 0 ||
-//                root.state.locations[root.state.locations.length / 2 - 1] > winningThreshold ||
-//                root.state.locations[root.state.locations.length - 1] > winningThreshold) {
-//            root.next = null; // this signifies a finished game
-////            System.out.println("***game over***\n");
-//            return;
-//        }
-//
-////        System.out.println("");
-//
-//        // "Which player am I?"
-//        int currentPlayer = root.state.activePlayer ? 1 : 0;
-//
-//        // "Who is my opponent?"
-//        int currentOpponent = (!root.state.activePlayer) ? 1 : 0;
-//
-//        // "Where is my store?"
-//        int playerStore = currentPlayer * (locationsPerPlayer + 1) + locationsPerPlayer;
-//
-//        // "Where is my opponent's store?"
-//        int opponentStore = currentOpponent * (locationsPerPlayer + 1) + locationsPerPlayer;
-//
-//        // iterate through each possible move (like a player considering his options)
-//        for(int chosenMove = 0; chosenMove < locationsPerPlayer; chosenMove++) {
-//            // "What does the board look like?"
-//            MancalaGameState currentState = root.state.clone();
-//
-//            // "Which location am I moving from?"
-//            int currentLocation = currentPlayer * (locationsPerPlayer + 1) + chosenMove;
-//
-//            // "I'm going to pick up my tokens from this location"
-//            int tokensInHand = currentState.locations[currentLocation];
-//            currentState.locations[currentLocation] = 0;
-//
-//            // "If there aren't any tokens here, I can't move."
-//            if(tokensInHand <= 0) continue;
-//
-//            while(tokensInHand > 0) {
-//                // move one spot forward (stay on the board)
-//                currentLocation++; currentLocation %= currentState.locations.length;
-//                // "If I'm not at my opponent's store, I'll deposit one token from my hand."
-//                if(currentLocation != opponentStore) {
-//                    currentState.locations[currentLocation]++;
-//                    tokensInHand--;
-//                }
-//            }
-//
-//            // "Unless I stopped at my own store, it's my opponent's turn."
-//            if(currentLocation != playerStore) {
-//                currentState.activePlayer = !currentState.activePlayer;
-//                // "If I stopped at a previously empty location on my side, I store my opponent's tokens across from my stopping point"
-//                if((currentState.locations[currentLocation] == 1) && (currentLocation < playerStore) && (currentLocation >= ((opponentStore + 1) % currentState.locations.length))) {
-//                    int oppositeLocation = currentState.locations.length - currentLocation - 2;
-//                    currentState.locations[playerStore] += 1 + currentState.locations[oppositeLocation];
-//                    currentState.locations[oppositeLocation] = currentState.locations[currentLocation] = 0;
-//                }
-//            }
-//
-//            // store the generated game state
-//            root.next[chosenMove] = new MancalaTurnNode(currentState, locationsPerPlayer);
-//
-//            // generate the new state's decision subtree
-//            createDecisionTree(root.next[chosenMove]);
-//        }
-//    }
 }
