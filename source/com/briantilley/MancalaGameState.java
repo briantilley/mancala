@@ -16,7 +16,11 @@ public class MancalaGameState implements Cloneable{
     // set up a new game
     // locationsPerPlayer should include only playable locations, not stores (6 in standard game)
     // locations are organized with first player's playable spots, their store, then repeat for second player
-    public MancalaGameState(int locationsPerPlayer, int startingTokensPerLocation) {
+    public MancalaGameState(int locationsPerPlayer, int startingTokensPerLocation) throws IllegalArgumentException {
+        // ensure unsigned bytes are sufficient for storage
+        if(locationsPerPlayer * startingTokensPerLocation > 255)
+            throw new IllegalArgumentException("total number of tokens must be 255 or less");
+
         // initialize members ("create a board")
         locations = new int[2 * (locationsPerPlayer + 1)];
         Arrays.fill(locations, startingTokensPerLocation);
