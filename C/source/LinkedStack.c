@@ -3,16 +3,23 @@
 
 #include "inc/LinkedStack.h"
 #include "inc/MemoryBuffer.h"
+#include "inc/defines.h"
 
 // memory buffers
-MemoryBuffer g_stackBuffer, g_nodeBuffer;
+MemoryBuffer g_stackBuffer = NULL, g_nodeBuffer = NULL;
 
 // safely make a new stack
 LinkedStack createLinkedStack()
 {
 	LinkedStack newStack;
+	#ifdef ASSUME_MEMORY_BUFFER_SUCCESS
+	newStack = allocMemoryBufferSlot(g_stackBuffer);
+	#else
+	#ifndef OS_ALLOCATION_ONLY
 	if(NULL == (newStack = allocMemoryBufferSlot(g_stackBuffer)))
+	#endif
 		newStack = (LinkedStack)malloc(sizeof(struct _LinkedStack));
+	#endif
 	if(NULL == newStack)
 	{
 		fprintf(stderr, "failed to create a new LinkedStack\n");
@@ -28,15 +35,34 @@ LinkedStack createLinkedStack()
 // safely delete the entire stack
 void destroyLinkedStack(LinkedStack s)
 {
+	if(NULL != s->top)
+	{
+		fprintf(stderr, "attempted to destroy a non-empty stack\n");
+		exit(1);
+	}
 
+	#ifdef ASSUME_MEMORY_BUFFER_SUCCESS
+	freeMemoryBufferSlot(g_stackBuffer, s);
+	#else
+	#ifndef OS_ALLOCATION_ONLY
+	if(!freeMemoryBufferSlot(g_stackBuffer, s))
+	#endif
+		free(s);
+	#endif
 }
 
 LinkedStackNode createLinkedStackNode()
 {
 	// allocate the node
 	LinkedStackNode newNode;
+	#ifdef ASSUME_MEMORY_BUFFER_SUCCESS
+	newNode = allocMemoryBufferSlot(g_nodeBuffer);
+	#else
+	#ifndef OS_ALLOCATION_ONLY
 	if(NULL == (newNode = allocMemoryBufferSlot(g_nodeBuffer)))
+	#endif
 		newNode = (LinkedStackNode)malloc(sizeof(struct _LinkedStackNode));
+	#endif
 	if(NULL == newNode)
 	{
 		fprintf(stderr, "failed to create new LinkedStackNode\n");
@@ -46,12 +72,21 @@ LinkedStackNode createLinkedStackNode()
 	// initialize members
 	newNode->p_data = NULL;
 	newNode->next = NULL;
+
+	return newNode;
 }
 
 void destroyLinkedStackNode(LinkedStackNode n)
 {
 	// assume data and next node are still in use
-	free(n);
+	#ifdef ASSUME_MEMORY_BUFFER_SUCCESS
+	freeMemoryBufferSlot(g_nodeBuffer, n);
+	#else
+	#ifndef OS_ALLOCATION_ONLY
+	if(!freeMemoryBufferSlot(g_nodeBuffer, n))
+	#endif
+		free(n);
+	#endif
 }
 
 void* popLinkedStack(LinkedStack s)

@@ -27,6 +27,8 @@ MemoryBuffer createMemoryBuffer(size_t numSlots, size_t bytesPerSlot)
 		fprintf(stderr, "failed to allocate deletion indicator array\n");
 		exit(1);
 	}
+	// all slots start as unoccupied
+	memset(newBuf->occupied, 0, numSlots);
 
 	newBuf->memSpace = malloc(numSlots * bytesPerSlot);
 	if(NULL == newBuf->memSpace)
@@ -55,12 +57,16 @@ void* allocMemoryBufferSlot(MemoryBuffer m)
 
 	// find an empty location
 	size_t startingSlot = m->currentSlot;
-	while(m->occupied[m->currentSlot])
+	do
 	{
-		m->currentSlot = (m->currentSlot + 1) % m->numSlots;
-		if(m->currentSlot == startingSlot)
+		if(!m->occupied[m->currentSlot])
+		{
+			// make sure the two aren't equal for later
+			startingSlot = m->currentSlot + 1;
 			break;
-	}
+		}
+		m->currentSlot = (m->currentSlot + 1) % m->numSlots;
+	} while(m->currentSlot != startingSlot);
 
 	// if no space available
 	if(m->currentSlot == startingSlot)

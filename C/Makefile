@@ -1,5 +1,5 @@
 CC=gcc
-OPTIONS=--std=gnu11 -O1 -Wfatal-errors
+OPTIONS=--std=gnu11 -Wall -Werror -Wextra -Wfatal-errors -g -O3
 
 all: main LinkedStack MemoryBuffer
 	$(CC) obj/*.o -o out/main
