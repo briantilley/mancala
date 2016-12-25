@@ -2,14 +2,25 @@
 #include <stdlib.h>
 
 #include "inc/LinkedStack.h"
+#include "inc/MemoryBuffer.h"
+
+// memory buffers
+MemoryBuffer g_stackBuffer, g_nodeBuffer;
 
 // safely make a new stack
 LinkedStack createLinkedStack()
 {
 	LinkedStack newStack;
+	if(NULL == (newStack = allocMemoryBufferSlot(g_stackBuffer)))
+		newStack = (LinkedStack)malloc(sizeof(struct _LinkedStack));
+	if(NULL == newStack)
+	{
+		fprintf(stderr, "failed to create a new LinkedStack\n");
+		exit(1);
+	}
 
 	// make sure stack starts empty
-	newStack.p_top = NULL;
+	newStack->top = NULL;
 
 	return newStack;
 }
@@ -20,41 +31,57 @@ void destroyLinkedStack(LinkedStack s)
 
 }
 
+LinkedStackNode createLinkedStackNode()
+{
+	// allocate the node
+	LinkedStackNode newNode;
+	if(NULL == (newNode = allocMemoryBufferSlot(g_nodeBuffer)))
+		newNode = (LinkedStackNode)malloc(sizeof(struct _LinkedStackNode));
+	if(NULL == newNode)
+	{
+		fprintf(stderr, "failed to create new LinkedStackNode\n");
+		exit(1);
+	}
+
+	// initialize members
+	newNode->p_data = NULL;
+	newNode->next = NULL;
+}
+
+void destroyLinkedStackNode(LinkedStackNode n)
+{
+	// assume data and next node are still in use
+	free(n);
+}
+
 void* popLinkedStack(LinkedStack s)
 {
 	// handle empty stack
-	if(NULL == s.p_top)
+	if(NULL == s->top)
 		return NULL;
 
 	// grab pointer to return
-	void* p_data = s.p_top->p_data;
+	void* p_data = s->top->p_data;
 
 	// unlink top node
-	LinkedStackNode* p_popped = s.p_top;
-	s.p_top = s.p_top->p_next;
+	LinkedStackNode popped = s->top;
+	s->top = s->top->next;
 
-	// deallocate memory
-	free(p_popped);
+	// clean up
+	destroyLinkedStackNode(popped);
 
 	return p_data;
 }
 
 void pushLinkedStack(void* p_data, LinkedStack s)
 {
-	// create a stack node and attempt allocation
-	LinkedStackNode* p_new = (LinkedStackNode*)malloc(sizeof(LinkedStackNode));
-
-	// check for failed allocation
-	if(NULL == p_new)
-	{
-		fprintf(stderr, "failed to allocate space for a new stack node, exiting\n");
-		exit(1);
-	}
+	// create a stack node
+	LinkedStackNode newNode = createLinkedStackNode();
 
 	// fill in new node
-	p_new->p_data = p_data;
-	p_new->p_next = s.p_top;
+	newNode->p_data = p_data;
+	newNode->next = s->top;
 
 	// set new top node for s
-	s.p_top = p_new;
+	s->top = newNode;
 }

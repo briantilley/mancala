@@ -1,16 +1,18 @@
 #ifndef LINKED_STACK_H
 #define LINKED_STACK_H
 
-typedef struct _LinkedStackNode
+struct _LinkedStackNode
 {
 	void* p_data;
-	struct _LinkedStackNode* p_next;
-} LinkedStackNode;
+	struct _LinkedStackNode* next;
+};
+typedef struct _LinkedStackNode* LinkedStackNode;
 
-typedef struct _LinkedStack
+struct _LinkedStack
 {
-	LinkedStackNode* p_top;
-} LinkedStack;
+	LinkedStackNode top;
+};
+typedef struct _LinkedStack* LinkedStack;
 
 // safely make a new stack
 LinkedStack createLinkedStack();
