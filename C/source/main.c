@@ -310,18 +310,23 @@ void destroyStackFrame(StackFrame f)
 	#endif
 }
 
-// return true if there are remaining moves for this frame
-uint8_t hasRemainingMoves(StackFrame f)
+// steps one too far if no valid move is found
+// will always start with the position specified by f
+void stepToValidMove(StackFrame f)
 {
-	uint32_t start = f->state->player * (g_locationsPerPlayer + 1) + f->nextStartPos;
-	uint32_t end = (f->state->player == 0) ? g_store0idx : g_store1idx;
-	return !rangeIsEmpty(f->state->board, start, end);
+	// check the active player's side, reapeatedly inncrementing nextStartPos
+	uint32_t offset = f->state->player * (g_locationsPerPlayer + 1);
+	do
+	{
+		if(f->state->board[offset + f->nextStartPos])
+			break;
+	} while(++f->nextStartPos < g_locationsPerPlayer);
 }
 
 void printSerialDecisionTree() {
 	// game metrics
 	#ifdef COLLECT_GAME_METRICS
-	uint64_t gameCount = 0, moveCount = 0, moveAccumulator = 0, currentHeight = 0, minHeight = 0xffffffffffffffff, maxHeight = 0;
+	uint64_t gameCount = 0, moveCount = 0;
 	#endif
 
 	// store all the states leading up to the one being worked on
@@ -341,72 +346,71 @@ void printSerialDecisionTree() {
 	// pre-order style generation of a serialized tree
 	do
 	{
-		// new state (next turn)
+		// we're guaranteed to have a valid move to do
+		// ensure next check is from a different position
 		GameState newState = cloneState(startingFrame->state);
+		doTurnFromLocation(startingFrame->nextStartPos++, newState);
 
-		// iterate until a valid move is made or none are left
-		uint8_t turnWasValid = 0;
-		while(startingFrame->nextStartPos < g_locationsPerPlayer && !(turnWasValid = doTurnFromLocation(startingFrame->nextStartPos++, newState)));
-
-		// if a valid move was done
-		if(turnWasValid)
-		{
-			#ifdef PRINT_STATES
-			// print the state
-			printState(newState);
-			#endif
-
-			#ifdef COLLECT_GAME_METRICS
-			moveCount++;
-			currentHeight++;
-			#endif
-
-			// if the new state has moves to be done
-			if(!isGameOver(newState))
-			{
-				// push the frame we started at, hold the new state
-				pushLinkedStack(startingFrame, currentDecisionPath);
-				startingFrame = createStackFrame(newState);
-
-				// start a new turn
-				continue;
-			}
-		}
-
-		// this state was not used
-		destroyState(newState);
-
-		if(!hasRemainingMoves(startingFrame))
-		{
-			// destroy the frame and state (nothing useful occurred in this iteration)
-			destroyStackFrame(startingFrame);
-
-			// get one frame up for the go-around
-			startingFrame = popLinkedStack(currentDecisionPath);
-
-			#ifdef COLLECT_GAME_METRICS
-			currentHeight--;
-			#endif
-		}
+		#ifdef PRINT_STATES
+		// print the state
+		printState(newState);
+		#endif
 
 		#ifdef COLLECT_GAME_METRICS
-		if(turnWasValid)
-		{
-			gameCount++;
-			minHeight = min(minHeight, currentHeight);
-			maxHeight = max(maxHeight, currentHeight);
-			moveAccumulator += currentHeight;
-			currentHeight--;
-		}
+		moveCount++;
 		#endif
+
+		// if the starting frame has been exhausted
+		stepToValidMove(startingFrame);
+		if(startingFrame->nextStartPos >= g_locationsPerPlayer)
+		{
+			// destroy the frame
+			destroyStackFrame(startingFrame);
+
+			// stop referencing
+			startingFrame = NULL;
+		}
+
+		// if the new state has moves to be done
+		if(!isGameOver(newState))
+		{
+			// if there were still more moves
+			if(NULL != startingFrame)
+			{
+				// push the frame to the stack
+				pushLinkedStack(startingFrame, currentDecisionPath);
+			}
+
+			// hold the new state
+			startingFrame = createStackFrame(newState);
+
+			// start the state at a valid move
+			stepToValidMove(startingFrame);
+		}
+		else
+		{
+			// this state is no longer needed
+			destroyState(newState);
+
+			#ifdef COLLECT_GAME_METRICS
+			gameCount++;
+			#endif
+		}
+
+		// if we exhausted a frame and didn't find a state to continue down
+		if(NULL == startingFrame)
+		{
+			// get a frame to work on (is NULL if done)
+			startingFrame = popLinkedStack(currentDecisionPath);
+		}
 	} while(NULL != startingFrame);
 
 	// done
 	destroyLinkedStack(currentDecisionPath);
 
 	#ifdef COLLECT_GAME_METRICS
-	printf("  total games: %lu\n total states: %lu\nshortest game: %lu\n longest game: %lu\n average game: %.2f\n",
-		gameCount, moveCount + 1, minHeight, maxHeight, (double)moveAccumulator / gameCount);
+	printf("  total games: %lu\n total states: %lu\n",
+		gameCount, moveCount + 1);
 	#endif
 }
 
