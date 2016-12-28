@@ -314,7 +314,7 @@ void destroyStackFrame(StackFrame f)
 // will always start with the position specified by f
 void stepToValidMove(StackFrame f)
 {
-	// check the active player's side, reapeatedly inncrementing nextStartPos
+	// check the active player's side, repeatedly incrementing nextStartPos
 	uint32_t offset = f->state->player * (g_locationsPerPlayer + 1);
 	do
 	{
