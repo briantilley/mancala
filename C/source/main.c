@@ -3,8 +3,6 @@
 #include <stdint.h>
 #include <string.h>
 
-#include "inc/LinkedStack.h"
-#include "inc/MemoryBuffer.h"
 #include "inc/defines.h"
 
 // unique representation of a snapshot of the game
@@ -12,16 +10,9 @@ struct _GameState
 {
 	uint8_t* board;
 	uint8_t player;
-};
-typedef struct _GameState* GameState;
-
-// used in generating serialized game tree
-struct _StackFrame
-{
-	GameState state;
 	uint32_t nextStartPos;
 };
-typedef struct _StackFrame* StackFrame;
+typedef struct _GameState GameState;
 
 // convenience constants
 // unchanged for entirety of tree generation
@@ -29,10 +20,11 @@ uint32_t g_locationsPerPlayer, g_boardSize;
 uint32_t g_store0idx, g_store1idx;
 uint8_t g_winningThreshold;
 
-// memory buffers
-MemoryBuffer g_stateBuffer = NULL, g_boardBuffer = NULL, g_stackFrameBuffer = NULL;
-extern MemoryBuffer g_stackBuffer, g_nodeBuffer;
+// stack storage for states
+GameState g_stateStack[STATE_STACK_SIZE];
+int32_t g_stateStackNext = 0;
 
+// convenience
 #define min(a, b) ((a < b) ? a : b)
 #define max(a, b) ((a > b) ? a : b)
 
@@ -67,15 +59,15 @@ void printState(GameState s)
 
 	printf("\n|      |");
 	for(i = 0; i < g_locationsPerPlayer; ++i)
-		printf("  %2u  |", s->board[g_boardSize - 2 - i]);
+		printf("  %2u  |", s.board[g_boardSize - 2 - i]);
 	printf("      |");
-	if(s->player)
+	if(s.player)
 		printf(" 1");
 
-	printf("\n|  %2u  |", s->board[g_boardSize - 1]);
+	printf("\n|  %2u  |", s.board[g_boardSize - 1]);
 	for(i = 0; i < g_locationsPerPlayer; ++i)
 		printf("______|");
-	printf("  %2u  |", s->board[g_locationsPerPlayer]);
+	printf("  %2u  |", s.board[g_locationsPerPlayer]);
 
 	printf("\n|      |      |");
 	for(i = 0; i < g_locationsPerPlayer; ++i)
@@ -83,9 +75,9 @@ void printState(GameState s)
 
 	printf("\n|      |");
 	for(i = 0; i < g_locationsPerPlayer; ++i)
-		printf("  %2u  |", s->board[i]);
+		printf("  %2u  |", s.board[i]);
 	printf("      |");
-	if(!s->player)
+	if(!s.player)
 		printf(" 0");
 
 	printf("\n|______|______|");
@@ -97,27 +89,30 @@ void printState(GameState s)
 }
 
 // help avoid accidentally setting player to invalid value
-void switchPlayer(GameState s)
-{ s->player = ((0 == s->player) ? 1 : 0); }
+void switchPlayer(GameState* p_state)
+{ p_state->player = ((0 == p_state->player) ? 1 : 0); }
 
 // return 0 if invalid move (empty location)
 // else, modify s by taking one turn
-uint8_t doTurnFromLocation(uint32_t startLocation, GameState s)
+uint8_t doTurn(GameState* p_state)
 {
 	// determine absolute initial position on board
-	uint32_t currentLocation = s->player * (g_locationsPerPlayer + 1) + startLocation;
+	uint32_t currentLocation = p_state->player * (g_locationsPerPlayer + 1) + p_state->nextStartPos;
+
+	// reset the start position for the newly-made state
+	p_state->nextStartPos = 0;
 
 	// check for invalid move
-	if(currentLocation > g_boardSize || 0 == s->board[currentLocation])
+	if(currentLocation > g_boardSize || 0 == p_state->board[currentLocation])
 		return 0;
 
 	// pick up tokens from currentLocation
-	uint8_t tokensInHand = s->board[currentLocation];
-	s->board[currentLocation] = 0;
+	uint8_t tokensInHand = p_state->board[currentLocation];
+	p_state->board[currentLocation] = 0;
 
 	// record parameters
 	uint32_t playerStore, opponentStore;
-	playerStore = (s->player == 0) ? g_store0idx : g_store1idx;
+	playerStore = (p_state->player == 0) ? g_store0idx : g_store1idx;
 	opponentStore = (playerStore == g_store0idx) ? g_store1idx : g_store0idx;
 
 	// step forward and drop tokens in place
@@ -130,7 +125,7 @@ uint8_t doTurnFromLocation(uint32_t startLocation, GameState s)
 		if(currentLocation != opponentStore)
 		{
 			// drop one token into location
-			s->board[currentLocation]++;
+			p_state->board[currentLocation]++;
 			tokensInHand--;
 		}
 	}
@@ -140,17 +135,17 @@ uint8_t doTurnFromLocation(uint32_t startLocation, GameState s)
 	{
 		// if the player stopped on a previously empty location on their side,
 		// they capture opponent's tokens opposite that location
-		if(s->board[currentLocation] == 1 &&
+		if(p_state->board[currentLocation] == 1 &&
 			currentLocation < playerStore &&
-			(s->player == 0 || currentLocation > opponentStore))
+			(p_state->player == 0 || currentLocation > opponentStore))
 		{
 			uint32_t oppositeLocation = g_boardSize - 2 - currentLocation;
-			s->board[playerStore] += 1 + s->board[oppositeLocation];
-			s->board[oppositeLocation] = s->board[currentLocation] = 0;
+			p_state->board[playerStore] += 1 + p_state->board[oppositeLocation];
+			p_state->board[oppositeLocation] = p_state->board[currentLocation] = 0;
 		}
 
 		// give opponent a turn
-		switchPlayer(s);
+		switchPlayer(p_state);
 	}
 
 	// move was valid and was performed
@@ -170,157 +165,52 @@ uint8_t rangeIsEmpty(uint8_t values[], uint32_t start, uint32_t end)
 uint8_t isGameOver(GameState s)
 {
 	// either store has more than half the tokens or either side is empty
-	return s->board[g_store0idx] > g_winningThreshold ||
-			s->board[g_store1idx] > g_winningThreshold ||
-			rangeIsEmpty(s->board, 0, g_store0idx) ||
-			rangeIsEmpty(s->board, g_store0idx + 1, g_store1idx);
-}
-
-// build a blank board with the global parameters
-GameState createState()
-{
-	// allocate space for a new state and its board
-	GameState newState;
-	#ifdef ASSUME_MEMORY_BUFFER_SUCCESS
-	newState = (GameState)allocMemoryBufferSlot(g_stateBuffer);
-	#else
-	#ifndef OS_ALLOCATION_ONLY
-	if(NULL == (newState = allocMemoryBufferSlot(g_stateBuffer)))
-	#endif
-		newState = (GameState)malloc(sizeof(struct _GameState));
-	#endif
-	if(NULL == newState)
-	{
-		fprintf(stderr, "failed to allocate space for a new state\n");
-		exit(1);
-	}
-
-	// handle memory allocation failure by exiting intentionally
-	#ifdef ASSUME_MEMORY_BUFFER_SUCCESS
-	newState->board = allocMemoryBufferSlot(g_boardBuffer);
-	#else
-	#ifndef OS_ALLOCATION_ONLY
-	if(NULL == (newState->board = allocMemoryBufferSlot(g_boardBuffer)))
-	#endif
-		newState->board = (uint8_t*)malloc(g_boardSize * sizeof(uint8_t));
-	#endif
-	if(NULL == newState->board)
-	{
-		fprintf(stderr, "failed to allocate space for a new board\n");
-		exit(1);
-	}
-
-	return newState;
+	return s.board[g_store0idx] > g_winningThreshold ||
+			s.board[g_store1idx] > g_winningThreshold ||
+			rangeIsEmpty(s.board, 0, g_store0idx) ||
+			rangeIsEmpty(s.board, g_store0idx + 1, g_store1idx);
 }
 
 // fill a blank board using global params
-GameState createInitialState()
+void initializeState(GameState* p_state)
 {
-	GameState iState = createState();
-
 	// fill the board with tokens
-	memset((void*)iState->board, g_winningThreshold / g_locationsPerPlayer, g_boardSize);
+	memset((void*)p_state->board, g_winningThreshold / g_locationsPerPlayer, g_boardSize);
 
 	// clear the players' stores
-	iState->board[g_store0idx] = iState->board[g_store1idx] = 0;
+	p_state->board[g_store0idx] = p_state->board[g_store1idx] = 0;
 
 	// start with player 0
-	iState->player = 0;
+	p_state->player = 0;
 
-	return iState;
+	// start at move 0
+	p_state->nextStartPos = 0;
 }
 
-// return a deep carbon-copy of the given state
-GameState cloneState(GameState s)
+// copy a state
+void cloneState(GameState* p_copy, GameState* p_source)
 {
-	// allocate space for a new board
-	GameState newState = createState();
-
 	// copy the old board to the new one
-	memcpy((void*)newState->board, (void*)s->board, g_boardSize);
+	memcpy((void*)p_copy->board, (void*)p_source->board, g_boardSize);
 
 	// copy player status
-	newState->player = s->player;
+	p_copy->player = p_source->player;
 
-	return newState;
-}
-
-// avoid memory leaks by cleaning up the board
-void destroyState(GameState s)
-{
-	#ifdef ASSUME_MEMORY_BUFFER_SUCCESS
-	freeMemoryBufferSlot(g_boardBuffer, s->board);
-	freeMemoryBufferSlot(g_stateBuffer, s);
-	#else
-	#ifndef OS_ALLOCATION_ONLY
-	if(!freeMemoryBufferSlot(g_boardBuffer, s->board))
-	#endif
-		free(s->board);
-	#ifndef OS_ALLOCATION_ONLY
-	if(!freeMemoryBufferSlot(g_stateBuffer, s))
-	#endif
-		free(s);
-	#endif
-}
-
-// associate a game state with a stack frame
-StackFrame createStackFrame(GameState s)
-{
-	// exception case
-	if(NULL == s)
-	{
-		fprintf(stderr, "cannot create a stack frame from a NULL state\n");
-		exit(1);
-	}
-
-	// allocate space for new frame
-	StackFrame newFrame;
-	#ifdef ASSUME_MEMORY_BUFFER_SUCCESS
-		newFrame = allocMemoryBufferSlot(g_stackFrameBuffer);
-	#else
-	#ifndef OS_ALLOCATION_ONLY
-	if(NULL == (newFrame = allocMemoryBufferSlot(g_stackFrameBuffer)))
-	#endif
-		newFrame = (StackFrame)malloc(sizeof(struct _StackFrame));
-	#endif
-	if(NULL == newFrame)
-	{
-		fprintf(stderr, "failed to create a new stack frame\n");
-		exit(1);
-	}
-
-	// initialize values
-	newFrame->state = s;
-	newFrame->nextStartPos = 0;
-
-	return newFrame;
-}
-
-// cleanly get rid of the frame
-void destroyStackFrame(StackFrame f)
-{
-	destroyState(f->state);
-	#ifdef ASSUME_MEMORY_BUFFER_SUCCESS
-		freeMemoryBufferSlot(g_stackFrameBuffer, f);
-	#else
-	#ifndef OS_ALLOCATION_ONLY
-	if(!freeMemoryBufferSlot(g_stackFrameBuffer, f))
-	#endif
-		free(f);
-	#endif
+	// copy next location from which to move
+	p_copy->nextStartPos = p_source->nextStartPos;
 }
 
 // steps one too far if no valid move is found
 // will always start with the position specified by f
-void stepToValidMove(StackFrame f)
+void stepToNextValidMove(GameState* p_state)
 {
 	// check the active player's side, repeatedly incrementing nextStartPos
-	uint32_t offset = f->state->player * (g_locationsPerPlayer + 1);
+	uint32_t offset = p_state->player * (g_locationsPerPlayer + 1);
 	do
 	{
-		if(f->state->board[offset + f->nextStartPos])
+		if(p_state->board[offset + p_state->nextStartPos])
 			break;
-	} while(++f->nextStartPos < g_locationsPerPlayer);
+	} while(++p_state->nextStartPos < g_locationsPerPlayer);
 }
 
 void printSerialDecisionTree() {
@@ -329,84 +219,63 @@ void printSerialDecisionTree() {
 	uint64_t gameCount = 0, moveCount = 0;
 	#endif
 
-	// store all the states leading up to the one being worked on
-	LinkedStack currentDecisionPath = createLinkedStack();
+	// get two adjacent states from the stack
+	int32_t beforeStateIdx = g_stateStackNext++;
+	int32_t afterStateIdx = g_stateStackNext++;
 
-	// make the starting state
-	GameState freshState = createInitialState();
-
-	// wrap the state in a stack frame
-	StackFrame startingFrame = createStackFrame(freshState);
+	// initialize
+	initializeState(g_stateStack + beforeStateIdx);
 
 	#ifdef PRINT_STATES
 	// print the starting state
-	printState(freshState);
+	printState(g_stateStack[beforeStateIdx]);
 	#endif
 
 	// pre-order style generation of a serialized tree
-	do
+	while(0 <= beforeStateIdx)
 	{
-		// we're guaranteed to have a valid move to do
-		// ensure next check is from a different position
-		GameState newState = cloneState(startingFrame->state);
-		doTurnFromLocation(startingFrame->nextStartPos++, newState);
+		// start at a good move if the one chosen is not already
+		stepToNextValidMove(g_stateStack + beforeStateIdx);
+
+		// if there is no valid move to make
+		if(g_stateStack[beforeStateIdx].nextStartPos >= g_locationsPerPlayer)
+		{
+			// jump up the stack to find a state with moves left
+			afterStateIdx = beforeStateIdx--;
+
+			// try again
+			continue;
+		}
+
+		// make a copy to modify
+		cloneState(g_stateStack + afterStateIdx, g_stateStack + beforeStateIdx);
+
+		// ensure the copied state starts at a new move next time around
+		g_stateStack[beforeStateIdx].nextStartPos++;
+
+		// we know we're at a valid move, do it
+		doTurn(g_stateStack + afterStateIdx);
 
 		#ifdef PRINT_STATES
-		// print the state
-		printState(newState);
+		// print the state found
+		printState(g_stateStack[afterStateIdx]);
 		#endif
 
 		#ifdef COLLECT_GAME_METRICS
 		moveCount++;
 		#endif
 
-		// if the starting frame has been exhausted
-		stepToValidMove(startingFrame);
-		if(startingFrame->nextStartPos >= g_locationsPerPlayer)
-		{
-			// destroy the frame
-			destroyStackFrame(startingFrame);
-
-			// stop referencing
-			startingFrame = NULL;
-		}
-
 		// if the new state has moves to be done
-		if(!isGameOver(newState))
+		if(!isGameOver(g_stateStack[afterStateIdx]))
 		{
-			// if there were still more moves
-			if(NULL != startingFrame)
-			{
-				// push the frame to the stack
-				pushLinkedStack(startingFrame, currentDecisionPath);
-			}
-
-			// hold the new state
-			startingFrame = createStackFrame(newState);
-
-			// start the state at a valid move
-			stepToValidMove(startingFrame);
+			// if there were still more moves, leave the after state on the stack
+			beforeStateIdx = afterStateIdx++;
 		}
+		#ifdef COLLECT_GAME_METRICS
 		else
-		{
-			// this state is no longer needed
-			destroyState(newState);
-
-			#ifdef COLLECT_GAME_METRICS
 			gameCount++;
-			#endif
-		}
-
-		// if we exhausted a frame and didn't find a state to continue down
-		if(NULL == startingFrame)
-		{
-			// get a frame to work on (is NULL if done)
-			startingFrame = popLinkedStack(currentDecisionPath);
-		}
-	} while(NULL != startingFrame);
-
-	// done
-	destroyLinkedStack(currentDecisionPath);
+		#endif
+	}
 
 	#ifdef COLLECT_GAME_METRICS
 	printf("  total games: %lu\n total states: %lu\n",
@@ -426,16 +295,24 @@ int main(int argc, char* argv[])
 	g_store1idx = g_boardSize - 1;
 	g_winningThreshold = g_locationsPerPlayer * initialTPL;
 
-	#ifndef OS_ALLOCATION_ONLY
-	// block out sizable memory buffers
-	g_stateBuffer = (MemoryBuffer)createMemoryBuffer(MEMORY_BUFFER_SLOT_COUNT, sizeof(struct _GameState));
-	g_boardBuffer = (MemoryBuffer)createMemoryBuffer(MEMORY_BUFFER_SLOT_COUNT, g_boardSize * sizeof(uint8_t));
-	g_stackFrameBuffer = (MemoryBuffer)createMemoryBuffer(MEMORY_BUFFER_SLOT_COUNT, sizeof(struct _StackFrame));
-	g_stackBuffer = (MemoryBuffer)createMemoryBuffer(MEMORY_BUFFER_SLOT_COUNT, sizeof(struct _LinkedStack));
-	g_nodeBuffer = (MemoryBuffer)createMemoryBuffer(MEMORY_BUFFER_SLOT_COUNT, sizeof(struct _LinkedStackNode));
-	#endif
+	// allocate the board for all stack slots
+	uint8_t* allBoards = (uint8_t*)malloc(STATE_STACK_SIZE * g_boardSize * sizeof(uint8_t));
+	if(NULL == allBoards)
+	{
+		fprintf(stderr, "failed to allocate boards\n");
+		exit(1);
+	}
+
+	// assign pointers within the full allocation
+	for(int i = 0; i < STATE_STACK_SIZE; ++i)
+	{
+		g_stateStack[i].board = allBoards + i * g_boardSize;
+	}
 
 	printSerialDecisionTree();
+
+	// deallocate the boards
+	free(allBoards);
 
 	return 0;
 }
