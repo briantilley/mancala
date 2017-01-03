@@ -4,10 +4,12 @@ import java.util.Arrays;
 
 public final class MancalaGameState implements Cloneable{
 
+    public static final int MAXIMUM_BOARD_VALUE = Byte.MAX_VALUE;
+
     // number of tokens in each spot on the board
-    private int[] board;
+    private byte[] board;
     private int store0index, store1index;
-    private int currentMoveIndex = 0;
+    private int moveIndexFromParent, currentMoveIndex = 0;
 
     // useful game parameters
     private int locationsPerPlayer, winningThreshold;
@@ -17,7 +19,7 @@ public final class MancalaGameState implements Cloneable{
 
     // convenience method
     // checks whether the range of values in the specified array is empty
-    private boolean rangeIsEmpty(int[] values, int begin, int end) {
+    private boolean rangeIsEmpty(byte[] values, int begin, int end) {
         for(int i = begin; i < end; ++i)
             if(values[i] != 0) return false;
         return true;
@@ -28,22 +30,34 @@ public final class MancalaGameState implements Cloneable{
     // locations are organized with first player's playable spots, their store, then repeat for second player
     public MancalaGameState(int locationsPerPlayer, int startingTokensPerLocation) throws IllegalArgumentException {
         // ensure unsigned bytes are sufficient for eventual storage
-        if(2 * locationsPerPlayer * startingTokensPerLocation > 255)
-            throw new IllegalArgumentException("total number of tokens must be 255 or less");
+        if(2 * locationsPerPlayer * startingTokensPerLocation >= MAXIMUM_BOARD_VALUE)
+            throw new IllegalArgumentException("total number of tokens must be " + MAXIMUM_BOARD_VALUE + " or less");
 
         // create and fill a board
-        board = new int[2 * (locationsPerPlayer + 1)];
-        Arrays.fill(board, startingTokensPerLocation);
+        board = new byte[2 * (locationsPerPlayer + 1)];
+        Arrays.fill(board, (byte)startingTokensPerLocation);
 
         // empty each player's store
         board[locationsPerPlayer] = 0;
-        board[2 * locationsPerPlayer + 1] = 0;
 
         // calculate game parameters
+        board[2 * locationsPerPlayer + 1] = 0;
         store0index = locationsPerPlayer;
         store1index = board.length - 1;
         this.locationsPerPlayer = locationsPerPlayer;
         winningThreshold = startingTokensPerLocation * locationsPerPlayer;
+    }
+
+    // set this game's state to the info included in the array (board, active player)
+    public void set(byte[] stateBytes) throws IllegalArgumentException {
+        if(stateBytes.length != 2 * locationsPerPlayer + 3)
+            throw new IllegalArgumentException("game state needs exactly " + 2 * locationsPerPlayer + 3 + " bytes");
+
+        // straightforward board copy
+        System.arraycopy(stateBytes, 0, this.board, 0, this.board.length);
+
+        // active player must ignore other data
+        player = (stateBytes[stateBytes.length - 1] & 0x01) == 1;
     }
 
     // deep copy
@@ -52,14 +66,14 @@ public final class MancalaGameState implements Cloneable{
         // get a shallow copy
         MancalaGameState copy = null;
         try { copy = (MancalaGameState)super.clone(); }
-        catch (CloneNotSupportedException e) { e.printStackTrace(); }
+        catch (CloneNotSupportedException e) { e.printStackTrace(); System.exit(1); }
 
         // duplicate the board in a totally new array
-        copy.board = new int[board.length];
+        copy.board = new byte[board.length];
         System.arraycopy(this.board, 0, copy.board, 0, this.board.length);
 
-        // increment the move index
-        this.currentMoveIndex++;
+        // increment the move index, store the move taken from parent to get this state
+        copy.moveIndexFromParent = this.currentMoveIndex++;
 
         return copy;
     }
@@ -186,6 +200,20 @@ public final class MancalaGameState implements Cloneable{
         return output + "\n\n";
     }
 
+    // return a byte array containing only information unique to this state
+    byte[] toBytes() {
+        // copy the board
+        byte[] byteVersion = new byte[board.length + 1];
+        System.arraycopy(board, 0, byteVersion, 0, board.length);
+
+        // copy extra info (active player at this state)
+        byteVersion[byteVersion.length - 1] = (byte)(player ? 1 : 0);
+        return byteVersion;
+    }
+
     // convenience
-    void print() { System.out.print(this); }
+    void print() {
+        System.out.print(this);
+//        System.out.println(Arrays.toString(toBytes()));
+    }
 }

@@ -243,6 +243,13 @@ void printSerialDecisionTree() {
 			// jump up the stack to find a state with moves left
 			afterStateIdx = beforeStateIdx--;
 
+			if(beforeStateIdx < 2)
+			{
+				if(beforeStateIdx > 0)
+					printf(" ");
+				printf("%d\n", g_stateStack[beforeStateIdx].nextStartPos);
+			}
+
 			// try again
 			continue;
 		}
